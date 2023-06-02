@@ -53,6 +53,7 @@ parser.add_argument('-f', '--face', help='use this face', dest='source_img')
 parser.add_argument('-t', '--target', help='replace this face', dest='target_path')
 parser.add_argument('-o', '--output', help='save output to this file', dest='output_file')
 parser.add_argument('--gpu', help='use gpu', dest='gpu', action='store_true', default=False)
+parser.add_argument('--cpu', help='Force cpu', dest='cpu', action='store_true', default=False)
 parser.add_argument('--keep-fps', help='maintain original fps', dest='keep_fps', action='store_true', default=False)
 parser.add_argument('--keep-frames', help='keep frames directory', dest='keep_frames', action='store_true', default=False)
 parser.add_argument('--max-memory', help='maximum amount of RAM in GB to be used', type=int)
@@ -88,40 +89,36 @@ def pre_check():
     model_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), 'inswapper_128.onnx')
     if not os.path.isfile(model_path):
         quit('File "inswapper_128.onnx" does not exist!')
-    if True or '--gpu' in sys.argv:
-        NVIDIA_PROVIDERS = ['CUDAExecutionProvider', 'TensorrtExecutionProvider']
-        if len(list(set(core.globals.providers) - set(NVIDIA_PROVIDERS))) == 1:
-            CUDA_VERSION = torch.version.cuda
-            CUDNN_VERSION = torch.backends.cudnn.version()
-            if not torch.cuda.is_available() or not CUDA_VERSION:
-                quit("You are using --gpu flag but CUDA isn't available or properly installed on your system.")
-            if CUDA_VERSION > '11.8':
-                quit(f"CUDA version {CUDA_VERSION} is not supported - please downgrade to 11.8")
-            if CUDA_VERSION < '11.4':
-                quit(f"CUDA version {CUDA_VERSION} is not supported - please upgrade to 11.8")
-            if CUDNN_VERSION < 8220:
-                quit(f"CUDNN version {CUDNN_VERSION} is not supported - please upgrade to 8.9.1")
-            if CUDNN_VERSION > 8910:
-                quit(f"CUDNN version {CUDNN_VERSION} is not supported - please downgrade to 8.9.1")
-            #core.globals.providers = ['CUDAExecutionProvider']
+    
+    if args['cpu']:
+        log.info('Forcing CPU mode')
+        args['gpu'] = False
+    #Check if GPU is available
+    elif torch.cuda.is_available() and core.globals.getOnnxruntimeDevice() == 'GPU':
+        log.info('GPU available. Using GPU mode')
+        args['gpu'] = True
     else:
-        core.globals.providers = ['CPUExecutionProvider']
-
+        log.info('GPU not available. Defaulting to CPU mode')
+        args['gpu'] = False
 
 def start_processing():
-    if True or args['gpu']:
-        process_video(args['source_img'], args["frame_paths"])
-        return
     frame_paths = args["frame_paths"]
     n = len(frame_paths)//(args['cores_count'])
-    processes = []
-    for i in range(0, len(frame_paths), n):
-        p = pool.apply_async(process_video, args=(args['source_img'], frame_paths[i:i+n],))
-        processes.append(p)
-    for p in processes:
-        p.get()
-    pool.close()
-    pool.join()
+    
+    #Single Threaded
+    if len(frame_paths) < args['cores_count'] or args['gpu'] or is_img(args['target_path']):
+        process_video(args['source_img'], args["frame_paths"])
+        return
+    #Multi Threading for CPU only
+    else:
+        processes = []
+        for i in range(0, len(frame_paths), n):
+            p = pool.apply_async(process_video, args=(args['source_img'], frame_paths[i:i+n],))
+            processes.append(p)
+        for p in processes:
+            p.get()
+        pool.close()
+        pool.join()
 
 
 def preview_image(image_path):
