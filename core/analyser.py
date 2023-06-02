@@ -3,7 +3,6 @@ import core.globals
 
 FACE_ANALYSER = None
 
-
 def get_face_analyser():
     global FACE_ANALYSER
     if FACE_ANALYSER is None:
@@ -12,7 +11,7 @@ def get_face_analyser():
     return FACE_ANALYSER
 
 
-def get_face_single(img_data):
+def get_face_single(img_data) -> insightface.app.common.Face or None:
     face = get_face_analyser().get(img_data)
     try:
         return sorted(face, key=lambda x: x.bbox[0])[0]
@@ -20,7 +19,7 @@ def get_face_single(img_data):
         return None
 
 
-def get_face_many(img_data):
+def get_face_many(img_data) -> list or None:
     try:
         return get_face_analyser().get(img_data)
     except IndexError:
