@@ -1,13 +1,31 @@
 #!/usr/bin/env python3
 
+import shlex
+import os
+import logging
+import sys
+
+commandline_args = os.environ.get('COMMANDLINE_ARGS', "")
+sys.argv += shlex.split(commandline_args)
+
+import installer
+installer.ensure_base_requirements()
+installer.add_args()
+installer.parse_args()
+installer.setup_logging(False)
+if __name__ == "__main__":
+    installer.run_setup()
+    installer.log.debug('Starting')
+#logging.disable(logging.NOTSET if args.debug else logging.DEBUG)
+
+log = logging.getLogger("roop")
+
 import platform
 import signal
-import sys
 import shutil
 import glob
 import argparse
 import multiprocessing as mp
-import os
 import torch
 from pathlib import Path
 import tkinter as tk
@@ -25,7 +43,7 @@ from core.analyser import get_face_single
 
 if 'ROCMExecutionProvider' in core.globals.providers:
     del torch
-
+ 
 pool = None
 args = {}
 
@@ -52,6 +70,7 @@ if os.name == "nt":
 def limit_resources():
     if args['max_memory']:
         memory = args['max_memory'] * 1024 * 1024 * 1024
+        memory = 4 * 1024 * 1024 * 1024
         if str(platform.system()).lower() == 'windows':
             import ctypes
             kernel32 = ctypes.windll.kernel32
@@ -69,7 +88,7 @@ def pre_check():
     model_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), 'inswapper_128.onnx')
     if not os.path.isfile(model_path):
         quit('File "inswapper_128.onnx" does not exist!')
-    if '--gpu' in sys.argv:
+    if True or '--gpu' in sys.argv:
         NVIDIA_PROVIDERS = ['CUDAExecutionProvider', 'TensorrtExecutionProvider']
         if len(list(set(core.globals.providers) - set(NVIDIA_PROVIDERS))) == 1:
             CUDA_VERSION = torch.version.cuda
@@ -84,12 +103,13 @@ def pre_check():
                 quit(f"CUDNN version {CUDNN_VERSION} is not supported - please upgrade to 8.9.1")
             if CUDNN_VERSION > 8910:
                 quit(f"CUDNN version {CUDNN_VERSION} is not supported - please downgrade to 8.9.1")
+            #core.globals.providers = ['CUDAExecutionProvider']
     else:
         core.globals.providers = ['CPUExecutionProvider']
 
 
 def start_processing():
-    if args['gpu']:
+    if True or args['gpu']:
         process_video(args['source_img'], args["frame_paths"])
         return
     frame_paths = args["frame_paths"]
@@ -141,7 +161,10 @@ def select_face():
 
 
 def select_target():
+   
     args['target_path'] = filedialog.askopenfilename(title="Select a target")
+    if args['target_path'] == None or args['target_path'] == '':
+        return
     threading.Thread(target=preview_video, args=(args['target_path'],)).start()
 
 
@@ -225,6 +248,8 @@ def start():
 if __name__ == "__main__":
     global status_label, window
 
+    log.info('roop using device: ' + core.globals.getOnnxruntimeDevice())
+
     pre_check()
     limit_resources()
 
@@ -234,7 +259,7 @@ if __name__ == "__main__":
         quit()
     window = tk.Tk()
     window.geometry("600x700")
-    window.title("roop")
+    window.title("roop-auto")
     window.configure(bg="#2d3436")
     window.resizable(width=False, height=False)
 
