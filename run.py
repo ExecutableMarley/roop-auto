@@ -157,11 +157,12 @@ def preview_video(video_path):
 
 def select_face():
     args['source_img'] = filedialog.askopenfilename(title="Select a face")
+    if args['source_img'] == None or args['source_img'] == '':
+        return
     preview_image(args['source_img'])
 
 
 def select_target():
-   
     args['target_path'] = filedialog.askopenfilename(title="Select a target")
     if args['target_path'] == None or args['target_path'] == '':
         return
