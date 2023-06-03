@@ -7,7 +7,7 @@ from insightface.model_zoo.inswapper import INSwapper
 from insightface.app.common import Face
 import core.globals
 from core.analyser import get_face_single, get_face_many
-
+from core.hidePrint import HiddenPrints
 
 
 
@@ -34,16 +34,10 @@ def process_faces(source_face: Face, frame: Mat, progress, all_faces=False):
         if many_faces:
             for face in many_faces:
                 frame = swap_face_in_frame(source_face, face, frame)
-            progress.set_postfix(status='.', refresh=True)
-        else:
-            progress.set_postfix(status='S', refresh=True)
     else:
         face = get_face_single(frame)
         if face:
             frame = swap_face_in_frame(source_face, face, frame)
-            progress.set_postfix(status='.', refresh=True)
-        else:
-            progress.set_postfix(status='S', refresh=True)
     return frame
 
 def processFramesMany(sourceFace: Face, frame_paths: list):
@@ -53,12 +47,14 @@ def processFramesMany(sourceFace: Face, frame_paths: list):
         for frame_path in frame_paths:
             frame: Mat = cv2.imread(frame_path)
             try:
-                result = process_faces(sourceFace, frame, progress, core.globals.all_faces)
+                with HiddenPrints():
+                    result = process_faces(sourceFace, frame, progress, core.globals.all_faces)
                 cv2.imwrite(frame_path, result)
             except Exception:
                 progress.set_postfix(status='E', refresh=True)
                 pass
             progress.update(1)
+        progress.set_postfix(desc="Done", refresh=True)
 
 def processFrame(sourceFace: Face, frame_path: str, output_file: str):
     progress_bar_format = '{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]'
