@@ -4,6 +4,7 @@
 
 tmp/
 venv/
+CodeFormer/
 
 __pycache__
 *.onnx
