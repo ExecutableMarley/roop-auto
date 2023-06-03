@@ -350,6 +350,25 @@ def install_packages():
     if args.profile:
         print_profile(pr, 'Packages')
 
+# clone required repositories
+def install_repositories():
+    if args.profile:
+        pr = cProfile.Profile()
+        pr.enable()
+    def d(name):
+        return os.path.join(os.path.dirname(__file__), 'repositories', name)
+    log.info('Installing repositories')
+    os.makedirs(os.path.join(os.path.dirname(__file__), 'repositories'), exist_ok=True)
+    
+    # Clone CodeFormer repo
+    codeformer_repo = os.environ.get('CODEFORMER_REPO', 'https://github.com/sczhou/CodeFormer.git')
+    codeformer_commit = os.environ.get('CODEFORMER_COMMIT_HASH', "7a584fd")
+    clone(codeformer_repo, d('CodeFormer'), codeformer_commit)
+    
+    
+    if args.profile:
+        print_profile(pr, 'Repositories')
+
 # run extension installer
 def run_extension_installer(folder):
     path_installer = os.path.join(folder, "install.py")
