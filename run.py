@@ -16,7 +16,6 @@ installer.setup_logging(False)
 if __name__ == "__main__":
     installer.run_setup()
     installer.log.debug('Starting')
-#logging.disable(logging.NOTSET if args.debug else logging.DEBUG)
 
 log = logging.getLogger("roop")
 
@@ -35,6 +34,7 @@ import webbrowser
 import psutil
 import cv2
 import threading
+import numpy as np
 from PIL import Image, ImageTk
 import core.globals
 from core.swapper import processFrame, processFramesMany
@@ -60,9 +60,15 @@ parser.add_argument('--keep-frames', help='keep frames directory', dest='keep_fr
 parser.add_argument('--max-memory', help='maximum amount of RAM in GB to be used', type=int)
 parser.add_argument('--max-cores', help='number of cores to be use for CPU mode', dest='cores_count', type=int, default=max(psutil.cpu_count() - 2, 2))
 parser.add_argument('--all-faces', help='swap all faces in frame', dest='all_faces', action='store_true', default=False)
+parser.add_argument('--debug', help='enable debug mode', dest='debug', action='store_true', default=False)
 
 for name, value in vars(parser.parse_args()).items():
     args[name] = value
+
+logging.disable(logging.NOTSET if args['debug'] else logging.DEBUG)
+
+if not args['debug']:
+    np.warnings.filterwarnings('ignore')
 
 sep = "/"
 if os.name == "nt":
@@ -277,7 +283,6 @@ def processData():
     if is_img(target_path):
         processFrame(sourceFace, target_path, args['output_file'])
         status("swap successful!")
-        return
     elif is_video(target_path):
         processVideo(sourceFace, target_path, args['output_file'])
     elif os.path.isdir(target_path):
