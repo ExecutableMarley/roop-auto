@@ -14,7 +14,7 @@ try:
     from modules.cmd_args import parser
 except:
     import argparse
-    parser = argparse.ArgumentParser(description="SD.Next", conflict_handler='resolve', formatter_class=lambda prog: argparse.HelpFormatter(prog, max_help_position=55, indent_increment=2, width=200))
+    parser = argparse.ArgumentParser(description="roop.parser", conflict_handler='resolve', formatter_class=lambda prog: argparse.HelpFormatter(prog, max_help_position=55, indent_increment=2, width=200))
 
 class Dot(dict): # dot notation access to dictionary attributes
     __getattr__ = dict.get
@@ -502,7 +502,7 @@ def check_version(offline=False, reset=True): # pylint: disable=unused-argument
         return
     commits = None
     try:
-        commits = requests.get('https://github.com/ExecutableMarley/roop-auto/branches/master', timeout=10).json()
+        commits = requests.get('https://api.github.com/repos/ExecutableMarley/roop-auto/branches/master', timeout=10).json()
         if commits['commit']['sha'] != commit:
             if args.upgrade:
                 global quick_allowed # pylint: disable=global-statement
