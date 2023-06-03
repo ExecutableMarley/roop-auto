@@ -37,9 +37,10 @@ import threading
 import numpy as np
 from PIL import Image, ImageTk
 import core.globals
-from core.swapper import processFrame, processFramesMany
+from core.swapper import processFrame, processFramesMany, process_video_gpu
 from core.utils import is_img, is_video, detect_fps, set_fps, create_video, add_audio, extract_frames, rreplace
 from core.analyser import get_face_single
+from core.upscale import upscaleReplaceImages, upscaleImage
 import insightface
 
 if 'ROCMExecutionProvider' in core.globals.providers:
@@ -61,6 +62,8 @@ parser.add_argument('--max-memory', help='maximum amount of RAM in GB to be used
 parser.add_argument('--max-cores', help='number of cores to be use for CPU mode', dest='cores_count', type=int, default=max(psutil.cpu_count() - 2, 2))
 parser.add_argument('--all-faces', help='swap all faces in frame', dest='all_faces', action='store_true', default=False)
 parser.add_argument('--debug', help='enable debug mode', dest='debug', action='store_true', default=False)
+parser.add_argument('--upscale', help='upscale images', dest='upscale', action='store_true', default=False)
+parser.add_argument('--gpu-threads', help='number of threads for gpu to run in parallel', dest='gpu_threads', type=int, default=4)
 
 for name, value in vars(parser.parse_args()).items():
     args[name] = value
@@ -175,6 +178,8 @@ def toggle_all_faces():
 def toggle_keep_frames():
     args['keep_frames'] = int(keep_frames.get())
 
+def toogle_upscale():
+    args['upscale'] = int(upscale_check.get())
 
 def save_file():
     filename, ext = 'output.mp4', '.mp4'
@@ -196,9 +201,13 @@ def status(string):
         status_label["text"] = "Status: " + string
         window.update()
 
-def start_processing(sourceFace, frame_paths):
+def start_processing(sourceFace, frame_paths, fps):
     n = len(frame_paths)//(args['cores_count'])
     
+    #if args['gpu']:
+    #    process_video_gpu(sourceFace, args['target_path'], args['output_file'], fps, int(args['gpu_threads']), core.globals.all_faces)
+    #    return
+        
     #Single Threaded
     if len(frame_paths) < args['cores_count'] or args['gpu'] or is_img(args['target_path']):
         processFramesMany(sourceFace, args["frame_paths"])
@@ -232,6 +241,13 @@ def sanity_check() -> bool:
         return False
     return True
 
+def processImage(sourceFace, target_path, output_file=None):
+    if not output_file:
+        output_file = target_path + "/swapped-" + target_path.split("/")[-1]
+    processFrame(sourceFace, target_path, output_file)
+    if args['upscale']:
+        upscaleImage(output_file, output_file, 1, 0.5)
+
 def processVideo(sourceFace, target_path, output_file=None):
     if not output_file:
         output_file = target_path + "/swapped-" + target_path.split("/")[-1]
@@ -257,8 +273,12 @@ def processVideo(sourceFace, target_path, output_file=None):
         key=lambda x: int(x.split(sep)[-1].replace(".png", ""))
     ))
     status("swapping in progress...")
-    start_processing(sourceFace, args["frame_paths"])
+    start_processing(sourceFace, args["frame_paths"], fps)
     status("creating video...")
+    
+    if args['upscale']:
+        upscaleReplaceImages(args['frame_paths'], 1, 0.5)
+    
     create_video(video_name, exact_fps, output_dir)
     status("adding audio...")
     add_audio(output_dir, target_path, video_name_full, args['keep_frames'], output_file)
@@ -275,6 +295,7 @@ def processData():
     currently_processing = True
     
     if not sanity_check():
+        currently_processing = False
         return
     
     sourceFace = get_face_single(cv2.imread(args['source_img']))
@@ -282,6 +303,8 @@ def processData():
     target_path = args['target_path']
     if is_img(target_path):
         processFrame(sourceFace, target_path, args['output_file'])
+        if args['upscale']:
+            upscaleImage(args['output_file'], args['output_file'])
         status("swap successful!")
     elif is_video(target_path):
         processVideo(sourceFace, target_path, args['output_file'])
@@ -349,7 +372,7 @@ if __name__ == "__main__":
     fps_checkbox.place(x=60,y=475,width=240,height=31)
 
     upscale_check = tk.IntVar(None, args['upscale'])
-    upscale_checkbox = tk.Checkbutton(window, anchor="w", relief="groove", activebackground="#2d3436", activeforeground="#74b9ff", selectcolor="black", text="Upscale", fg="#dfe6e9", borderwidth=0, highlightthickness=0, bg="#2d3436", variable=upscale_check)
+    upscale_checkbox = tk.Checkbutton(window, anchor="w", relief="groove", activebackground="#2d3436", activeforeground="#74b9ff", selectcolor="black", text="Upscale", fg="#dfe6e9", borderwidth=0, highlightthickness=0, bg="#2d3436", variable=upscale_check, command=toogle_upscale)
     upscale_checkbox.place(x=360,y=500,width=240,height=31)
 
     # Keep frames checkbox
