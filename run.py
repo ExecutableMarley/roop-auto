@@ -37,9 +37,10 @@ import cv2
 import threading
 from PIL import Image, ImageTk
 import core.globals
-from core.swapper import process_video, process_img
-from core.utils import is_img, detect_fps, set_fps, create_video, add_audio, extract_frames, rreplace
+from core.swapper import processFrame, processFramesMany
+from core.utils import is_img, is_video, detect_fps, set_fps, create_video, add_audio, extract_frames, rreplace
 from core.analyser import get_face_single
+import insightface
 
 if 'ROCMExecutionProvider' in core.globals.providers:
     del torch
@@ -49,11 +50,11 @@ args = {}
 
 signal.signal(signal.SIGINT, lambda signal_number, frame: quit())
 parser = argparse.ArgumentParser()
-parser.add_argument('-f', '--face', help='use this face', dest='source_img')
-parser.add_argument('-t', '--target', help='replace this face', dest='target_path')
-parser.add_argument('-o', '--output', help='save output to this file', dest='output_file')
-parser.add_argument('--gpu', help='use gpu', dest='gpu', action='store_true', default=False)
-parser.add_argument('--cpu', help='Force cpu', dest='cpu', action='store_true', default=False)
+parser.add_argument('-f', '--face', help='Source Face path', dest='source_img')
+parser.add_argument('-t', '--target', help='Target image/video Path', dest='target_path')
+parser.add_argument('-o', '--output', help='Output File Path', dest='output_file')
+parser.add_argument('--gpu', help='Force use gpu', dest='gpu', action='store_true', default=False)
+parser.add_argument('--cpu', help='Force use cpu', dest='cpu', action='store_true', default=False)
 parser.add_argument('--keep-fps', help='maintain original fps', dest='keep_fps', action='store_true', default=False)
 parser.add_argument('--keep-frames', help='keep frames directory', dest='keep_frames', action='store_true', default=False)
 parser.add_argument('--max-memory', help='maximum amount of RAM in GB to be used', type=int)
@@ -101,29 +102,9 @@ def pre_check():
         log.info('GPU not available. Defaulting to CPU mode')
         args['gpu'] = False
 
-def start_processing():
-    frame_paths = args["frame_paths"]
-    n = len(frame_paths)//(args['cores_count'])
-    
-    #Single Threaded
-    if len(frame_paths) < args['cores_count'] or args['gpu'] or is_img(args['target_path']):
-        process_video(args['source_img'], args["frame_paths"])
-        return
-    #Multi Threading for CPU only
-    else:
-        processes = []
-        for i in range(0, len(frame_paths), n):
-            p = pool.apply_async(process_video, args=(args['source_img'], frame_paths[i:i+n],))
-            processes.append(p)
-        for p in processes:
-            p.get()
-        pool.close()
-        pool.join()
-
-
 def preview_image(image_path):
     img = Image.open(image_path)
-    img = img.resize((180, 180), Image.ANTIALIAS)
+    img = img.resize((180, 180), Image.LANCZOS)
     photo_img = ImageTk.PhotoImage(img)
     left_frame = tk.Frame(window)
     left_frame.place(x=60, y=100)
@@ -141,7 +122,7 @@ def preview_video(video_path):
     if ret:
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         img = Image.fromarray(frame)
-        img = img.resize((180, 180), Image.ANTIALIAS)
+        img = img.resize((180, 180), Image.LANCZOS)
         photo_img = ImageTk.PhotoImage(img)
         right_frame = tk.Frame(window)
         right_frame.place(x=360, y=100)
@@ -158,13 +139,24 @@ def select_face():
         return
     preview_image(args['source_img'])
 
-
 def select_target():
     args['target_path'] = filedialog.askopenfilename(title="Select a target")
     if args['target_path'] == None or args['target_path'] == '':
         return
     threading.Thread(target=preview_video, args=(args['target_path'],)).start()
 
+def selectDirectory():
+    args['target_path'] = filedialog.askdirectory(title="Select a Directory")
+    if args['target_path'] == None or args['target_path'] == '':
+        return
+    try:
+        first_file = os.listdir(args['target_path'])[0]
+        if is_img(first_file) and False:
+            threading.Thread(target=preview_image, args=(args['target_path'] + "/" +  first_file,)).start()
+        elif is_video(first_file):
+            threading.Thread(target=preview_video, args=(args['target_path'] + "/" +  first_file,)).start()
+    except:
+        print("No files in directory")
 
 def toggle_fps_limit():
     args['keep_fps'] = int(limit_fps.get() != True)
@@ -182,6 +174,12 @@ def save_file():
     filename, ext = 'output.mp4', '.mp4'
     if is_img(args['target_path']):
         filename, ext = 'output.png', '.png'
+    if os.path.isdir(args['target_path']):
+        
+        newDir = args['target_path'] + "/swapped"
+        Path(newDir).mkdir(exist_ok=True)
+        
+        return
     args['output_file'] = asksaveasfilename(initialfile=filename, defaultextension=ext, filetypes=[("All Files","*.*"),("Videos","*.mp4")])
 
 
@@ -192,31 +190,51 @@ def status(string):
         status_label["text"] = "Status: " + string
         window.update()
 
+def start_processing(sourceFace, frame_paths):
+    n = len(frame_paths)//(args['cores_count'])
+    
+    #Single Threaded
+    if len(frame_paths) < args['cores_count'] or args['gpu'] or is_img(args['target_path']):
+        processFramesMany(sourceFace, args["frame_paths"])
+        return
+    #Multi Threading for CPU only
+    else:
+        processes = []
+        for i in range(0, len(frame_paths), n):
+            p = pool.apply_async(processFramesMany, args=(sourceFace, frame_paths[i:i+n],))
+            processes.append(p)
+        for p in processes:
+            p.get()
+        pool.close()
+        pool.join()
 
-def start():
+def sanity_check() -> bool:
     if not args['source_img'] or not os.path.isfile(args['source_img']):
         print("\n[WARNING] Please select an image containing a face.")
-        return
-    elif not args['target_path'] or not os.path.isfile(args['target_path']):
+        status("No Source Image Selected")
+        return False
+    elif not args['target_path'] or not (os.path.isfile(args['target_path']) or os.path.isdir(args['target_path']) ):
         print("\n[WARNING] Please select a video/image to swap face in.")
-        return
+        status("No Target File Selected")
+        return False
     if not args['output_file']:
         target_path = args['target_path']
         args['output_file'] = rreplace(target_path, "/", "/swapped-", 1) if "/" in target_path else "swapped-" + target_path
-    global pool
-    pool = mp.Pool(args['cores_count'])
-    target_path = args['target_path']
     test_face = get_face_single(cv2.imread(args['source_img']))
     if not test_face:
         print("\n[WARNING] No face detected in source image. Please try with another one.\n")
-        return
-    if is_img(target_path):
-        process_img(args['source_img'], target_path, args['output_file'])
-        status("swap successful!")
-        return
+        return False
+    return True
+
+def processVideo(sourceFace, target_path, output_file=None):
+    if not output_file:
+        output_file = target_path + "/swapped-" + target_path.split("/")[-1]
     video_name_full = target_path.split("/")[-1]
     video_name = os.path.splitext(video_name_full)[0]
     output_dir = os.path.dirname(target_path) + "/" + video_name if os.path.dirname(target_path) else video_name
+    if not output_file:
+        output_file = output_dir + "/swapped-" + video_name + ".mp4"
+    
     Path(output_dir).mkdir(exist_ok=True)
     status("detecting video's FPS...")
     fps, exact_fps = detect_fps(target_path)
@@ -233,15 +251,52 @@ def start():
         key=lambda x: int(x.split(sep)[-1].replace(".png", ""))
     ))
     status("swapping in progress...")
-    start_processing()
+    start_processing(sourceFace, args["frame_paths"])
     status("creating video...")
     create_video(video_name, exact_fps, output_dir)
     status("adding audio...")
-    add_audio(output_dir, target_path, video_name_full, args['keep_frames'], args['output_file'])
-    save_path = args['output_file'] if args['output_file'] else output_dir + "/" + video_name + ".mp4"
-    print("\n\nVideo saved as:", save_path, "\n\n")
+    add_audio(output_dir, target_path, video_name_full, args['keep_frames'], output_file)
+    #save_path = output_dir + "/" + video_name + ".mp4"
+    print("\n\nVideo saved as:", output_file, "\n\n")
     status("swap successful!")
 
+
+currently_processing = False
+def processData():
+    global currently_processing
+    if currently_processing:
+        return
+    currently_processing = True
+    
+    if not sanity_check():
+        return
+    
+    sourceFace = get_face_single(cv2.imread(args['source_img']))
+    
+    target_path = args['target_path']
+    if is_img(target_path):
+        processFrame(sourceFace, target_path, args['output_file'])
+        status("swap successful!")
+        return
+    elif is_video(target_path):
+        processVideo(sourceFace, target_path, args['output_file'])
+    elif os.path.isdir(target_path):
+        #Create output directory
+        Path(args['output_file']).mkdir(exist_ok=True)
+        #Get all files in directory
+        files = os.listdir(target_path)
+        for file in files:
+            if is_img(file):
+                processFrame(sourceFace, target_path + "/" + file, args['output_file'] + "/" + file)
+            elif is_video(file):
+                processVideo(sourceFace, target_path + "/" + file)
+            else:
+                pass
+        status("swap successful!")
+    else:
+        print("\n[WARNING] Please select a video/image/Directory to swap face in.")
+        status("Unknown File Type")
+    currently_processing = False
 
 if __name__ == "__main__":
     global status_label, window
@@ -274,6 +329,10 @@ if __name__ == "__main__":
     target_button = tk.Button(window, text="Select a target", command=select_target, bg="#2d3436", fg="#74b9ff", highlightthickness=4, relief="flat", highlightbackground="#74b9ff", activebackground="#74b9ff", borderwidth=4)
     target_button.place(x=360,y=320,width=180,height=80)
 
+    # Select a directory button
+    directory_button = tk.Button(window, text="Select a directory", command=selectDirectory, bg="#2d3436", fg="#74b9ff", highlightthickness=4, relief="flat", highlightbackground="#74b9ff", activebackground="#74b9ff", borderwidth=4)
+    directory_button.place(x=360,y=420,width=180,height=80)
+
     # All faces checkbox
     all_faces = tk.IntVar()
     all_faces_checkbox = tk.Checkbutton(window, anchor="w", relief="groove", activebackground="#2d3436", activeforeground="#74b9ff", selectcolor="black", text="Process all faces in frame", fg="#dfe6e9", borderwidth=0, highlightthickness=0, bg="#2d3436", variable=all_faces, command=toggle_all_faces)
@@ -290,9 +349,9 @@ if __name__ == "__main__":
     frames_checkbox.place(x=60,y=450,width=240,height=31)
 
     # Start button
-    start_button = tk.Button(window, text="Start", bg="#f1c40f", relief="flat", borderwidth=0, highlightthickness=0, command=lambda: [save_file(), start()])
+    start_button = tk.Button(window, text="Start", bg="#f1c40f", relief="flat", borderwidth=0, highlightthickness=0, command=lambda: [save_file(), threading.Thread(target=processData).start()])
     start_button.place(x=240,y=560,width=120,height=49)
-
+    
     # Status label
     status_label = tk.Label(window, width=580, justify="center", text="Status: waiting for input...", fg="#2ecc71", bg="#2d3436")
     status_label.place(x=10,y=640,width=580,height=30)
