@@ -6,10 +6,10 @@ import insightface
 from insightface.model_zoo.inswapper import INSwapper
 from insightface.app.common import Face
 import core.globals
-from core.analyser import get_face_single, get_face_many
+from core.analyser import get_face_single, get_face_many, drawOnFace
 from core.hidePrint import HiddenPrints
-
-
+from concurrent.futures import ThreadPoolExecutor
+from typing import Any, List
 
 FACE_SWAPPER = None
 
@@ -64,51 +64,21 @@ def processFrame(sourceFace: Face, frame_path: str, output_file: str):
             result = process_faces(sourceFace, frame, core.globals.all_faces)
         cv2.imwrite(output_file, result)
         progress.update(1)
-    print("\n\nImage saved as:", output_file, "\n\n")
 
+def processFrame2(sourceFace: Face, frame_path: str, output_file: str, progress: Any = None):
+    frame: Mat = cv2.imread(frame_path)
+    with HiddenPrints():
+        result = process_faces(sourceFace, frame, core.globals.all_faces)
+    cv2.imwrite(output_file, result)
+    if progress:
+        progress.update(1)
 
-from threading import Thread
-
-#creates a thread and returns value when joined
-class ThreadWithReturnValue(Thread):
-    
-    def __init__(self, group=None, target=None, name=None,
-                 args=(), kwargs={}, Verbose=None):
-        Thread.__init__(self, group, target, name, args, kwargs)
-        self._return = None
-
-    def run(self):
-        if self._target is not None:
-            self._return = self._target(*self._args, **self._kwargs)
-    def join(self, *args):
-        Thread.join(self, *args)
-        return self._return
-    
-def process_video_gpu(sourceFace: Face, source_video:str, outputfile:str, fps, gpu_threads, all_faces: bool=False):
-    #opening input video for read
-    cap = cv2.VideoCapture(source_video)
-    #opening output video for writing
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    output_video = cv2.VideoWriter( os.path.join(outputfile, "output.mp4"), fourcc, fps, (width, height))
-    frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    temp = []
-    bar_format = '{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]'
-    with tqdm(total=frame_count, desc='Processing', unit="frame", dynamic_ncols=True, bar_format=bar_format) as progress:
-        while True:
-            #getting frame
-            ret, frame = cap.read()
-            if not ret:
-                break
-            #we are having an array of length %gpu_threads%, running in parallel
-            #so if array is equal or longer than gpu threads, waiting 
-            while len(temp) >= gpu_threads:
-                #we are order dependent, so we are forced to wait for first element to finish. When finished removing thread from the list
-                swappedFrame = temp.pop(0).join()
-                output_video.write(swappedFrame)
-                progress.update(1)
-            #adding new frame to the list and starting it 
-            temp.append(ThreadWithReturnValue(target=process_faces, args=(sourceFace,frame, all_faces)))
-            temp[-1].start()
-        progress.set_postfix(desc="Done", refresh=True)
+def multiProcessFramesMany(sourceFace: Face, temp_frame_paths: List[str], threadCount: int = 1, progress: Any = None) -> None:
+    with ThreadPoolExecutor(max_workers=threadCount) as executor:
+        futures = []
+        for path in temp_frame_paths:
+            future = executor.submit(processFrame2, sourceFace, path, path, progress)
+            futures.append(future)
+        executor.shutdown(wait=True)
+        for future in futures:
+            future.result()
