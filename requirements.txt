@@ -68,3 +68,4 @@ psutil==5.9.5
 tk==0.1.0
 pillow==9.5.0
 codeformer-pip==0.0.4
+customtkinter==5.1.3
