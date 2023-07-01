@@ -1,3 +1,14 @@
+
+## Differences to Original Repo
+This is a fork of s0md3v/roop
+Currently the main difference of this fork is the auto installer that handles almost everything that is required to run on CPU and GPU.
+To use this fork follow these steps:
+1. git clone https://github.com/ExecutableMarley/roop-auto.git
+2. Download (https://drive.google.com/file/d/1eu60OrRtn4WhKrzM4mQv4F3rIuyUXqfl/view?usp=drive_link) and put inside roop-auto directory (if you already have the original roop installed just copy the inswapper_128.onnx file to roop-auto)
+3. If you want to use your GPU: install Cuda toolkit (https://developer.nvidia.com/cuda-toolkit) for your system
+4. Run the start.batt (if anyone needs a sh file for linux i can add that too)
+start.bat should install and open roop automatically.
+
 Take a video and replace the face in it with a face of your choice. You only need one image of the desired face. No dataset, no training.
 
 That's it, that's the software. You can watch some demos [here](https://drive.google.com/drive/folders/1KHv8n_rd3Lcr2v7jBq1yPSTWM554Gq8e?usp=sharing).
